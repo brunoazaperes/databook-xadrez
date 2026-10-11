@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Databook de Xadrez</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>♞ Databook de Xadrez</h1>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="gravar">Gravar</button>
+    <button class="tab-btn" data-tab="databook">Meu databook</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ABA: GRAVAR -->
+  <section id="tab-gravar" class="tab-panel active">
+    <div class="layout">
+      <div class="board-area">
+        <div class="board-controls" id="setupControls">
+          <button id="posicaoPadraoBtn" class="secondary">Posição inicial padrão</button>
+          <button id="limparBtn" class="secondary">Limpar tabuleiro</button>
+          <button id="iniciarGravacaoBtn" class="primary">Iniciar gravação ▶</button>
+        </div>
+
+        <div class="palette" id="palette">
+          <span class="palette-label">Clique numa peça e depois numa casa:</span>
+          <div class="palette-pieces" id="palettePieces"></div>
+          <button id="paletteEraser" class="tool-btn" data-piece="">🧹 Remover</button>
+        </div>
+
+        <div class="board-controls recording-controls hidden" id="recordingControls">
+          <span class="turn-indicator" id="turnIndicator">Vez das: <strong>Brancas</strong></span>
+          <button id="undoBtn" class="secondary">Desfazer lance</button>
+          <button id="voltarMontagemBtn" class="secondary">Voltar à montagem</button>
+          <button id="salvarSequenciaBtn" class="primary">💾 Salvar sequência</button>
+        </div>
+
+        <div id="board" class="board"></div>
+      </div>
+
+      <aside class="moves-area">
+        <h2>Lances gravados</h2>
+        <ol id="movesList" class="moves-list"></ol>
+        <p id="movesEmptyHint" class="empty-hint">Monte o tabuleiro e clique em "Iniciar gravação" para começar a registrar lances.</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ABA: DATABOOK -->
+  <section id="tab-databook" class="tab-panel">
+    <div class="databook-layout">
+      <div class="databook-list-area">
+        <h2>Sequências salvas</h2>
+        <div id="databookList" class="databook-list"></div>
+        <p id="databookEmptyHint" class="empty-hint">Nenhuma sequência salva ainda.</p>
+      </div>
+
+      <div class="replay-area" id="replayArea">
+        <p class="empty-hint">Selecione uma sequência à esquerda para revisar os lances.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Modal: salvar sequência -->
+<div class="modal-overlay" id="saveModalOverlay">
+  <form class="modal" id="saveForm">
+    <h2>Salvar sequência</h2>
+    <label>Nome da sequência
+      <input type="text" id="seqNome" required placeholder="Ex: Abertura Italiana - cap. 3">
+    </label>
+    <label>Observações (opcional)
+      <textarea id="seqNota" rows="3" placeholder="Referência do livro, página, contexto..."></textarea>
+    </label>
+    <div class="modal-actions">
+      <button type="button" id="cancelSaveBtn" class="secondary">Cancelar</button>
+      <button type="submit" class="primary">Salvar</button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal: promoção de peão -->
+<div class="modal-overlay" id="promoModalOverlay">
+  <div class="modal">
+    <h2>Promover peão para:</h2>
+    <div class="promo-options" id="promoOptions"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
