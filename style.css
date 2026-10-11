@@ -143,6 +143,24 @@ button.danger:hover { background: #fdecea; }
   background: #e8edfd;
 }
 
+.tool-btn-wide {
+  width: auto;
+  height: auto;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  gap: 6px;
+}
+.tool-btn-wide .tool-icon {
+  font-size: 1.1rem;
+}
+
+.databook-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
 .turn-indicator {
   font-size: 0.85rem;
   color: var(--muted);

@@ -30,7 +30,9 @@
         <div class="palette" id="palette">
           <span class="palette-label">Clique numa peça e depois numa casa:</span>
           <div class="palette-pieces" id="palettePieces"></div>
-          <button id="paletteEraser" class="tool-btn" data-piece="">🧹 Remover</button>
+          <button id="paletteEraser" class="tool-btn tool-btn-wide" data-piece="">
+            <span class="tool-icon">🧹</span><span>Remover</span>
+          </button>
         </div>
 
         <div class="board-controls recording-controls hidden" id="recordingControls">
@@ -56,6 +58,11 @@
     <div class="databook-layout">
       <div class="databook-list-area">
         <h2>Sequências salvas</h2>
+        <div class="databook-toolbar">
+          <button id="exportBtn" class="secondary">⬇ Exportar tudo (.json)</button>
+          <button id="importBtn" class="secondary">⬆ Importar arquivo</button>
+          <input type="file" id="importFile" accept="application/json" class="hidden">
+        </div>
         <div id="databookList" class="databook-list"></div>
         <p id="databookEmptyHint" class="empty-hint">Nenhuma sequência salva ainda.</p>
       </div>

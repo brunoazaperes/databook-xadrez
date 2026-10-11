@@ -364,6 +364,61 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+// ---------- Exportar / Importar ----------
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  if (sequences.length === 0) {
+    alert('Não há sequências salvas para exportar.');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(sequences, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `databook-xadrez-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('importBtn').addEventListener('click', () => {
+  document.getElementById('importFile').click();
+});
+
+document.getElementById('importFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    let imported;
+    try {
+      imported = JSON.parse(reader.result);
+      if (!Array.isArray(imported)) throw new Error('formato inválido');
+    } catch {
+      alert('Arquivo inválido. Selecione um .json exportado por este app.');
+      e.target.value = '';
+      return;
+    }
+
+    const existingIds = new Set(sequences.map(s => s.id));
+    let added = 0;
+    imported.forEach(seq => {
+      if (seq && seq.id && !existingIds.has(seq.id)) {
+        sequences.push(seq);
+        existingIds.add(seq.id);
+        added++;
+      }
+    });
+    saveSequences();
+    renderDatabookList();
+    alert(`${added} sequência(s) importada(s). ${imported.length - added} já existiam e foram ignoradas.`);
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
 // ---------- Databook: lista e replay ----------
 
 function renderDatabookList() {
