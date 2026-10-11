@@ -7,15 +7,34 @@ const PIECE_UNICODE = {
 
 const PIECE_ORDER = ['k', 'q', 'r', 'b', 'n', 'p'];
 
+// Notação descritiva antiga: cada coluna recebe o nome da peça que começa nela
+const FILE_CODES = ['TD', 'CD', 'BD', 'D', 'R', 'BR', 'CR', 'TR'];
+const FILE_NAMES_PT = {
+  TD: 'Torre da Dama', CD: 'Cavalo da Dama', BD: 'Bispo da Dama', D: 'Dama',
+  R: 'Rei', BR: 'Bispo do Rei', CR: 'Cavalo do Rei', TR: 'Torre do Rei',
+};
+const PIECE_NAMES_PT = { k: 'Rei', q: 'Dama', r: 'Torre', b: 'Bispo', n: 'Cavalo', p: 'Peão' };
+
+const KNIGHT_OFFSETS = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+const KING_OFFSETS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+const BISHOP_DIRS = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+const ROOK_DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
 // ---------- Estado ----------
 
 let board = createStandardBoard();
 let mode = 'setup'; // 'setup' | 'recording'
 let selectedTool = null; // {color,type} | 'eraser' | null
 let selectedSquare = null; // {row,col} | null
-let currentMoves = []; // [{notation, boardAfter}]
+let currentLegalMoves = []; // destinos possíveis da peça selecionada
+let currentMoves = []; // [{color, pieceType, modern, old, oldExpansion, boardAfter, castlingRightsAfter, lastMoveAfter}]
 let initialPositionForRecording = null;
+let initialCastlingRights = null;
 let turn = 'w';
+
+// direitos de roque e controle de en passant
+let castlingRights = { w: { k: true, q: true }, b: { k: true, q: true } };
+let lastMove = null; // {color, toRow, toCol} quando o último lance foi um peão andando 2 casas
 
 let sequences = loadSequences();
 let currentReplaySeq = null;
@@ -43,12 +62,32 @@ function cloneBoard(b) {
   return b.map(row => row.map(cell => (cell ? { ...cell } : null)));
 }
 
+function cloneCastlingRights(cr) {
+  return { w: { ...cr.w }, b: { ...cr.b } };
+}
+
+function inBounds(r, c) {
+  return r >= 0 && r < 8 && c >= 0 && c < 8;
+}
+
 function squareName(row, col) {
   return 'abcdefgh'[col] + (8 - row);
 }
 
+function descRank(row, color) {
+  return color === 'w' ? (8 - row) : (row + 1);
+}
+
 function pieceLetterPT(type) {
   return { k: 'R', q: 'D', r: 'T', b: 'B', n: 'C', p: '' }[type];
+}
+
+function pieceLetterOldPT(type) {
+  return { k: 'R', q: 'D', r: 'T', b: 'B', n: 'C', p: 'P' }[type];
+}
+
+function colorNamePT(color) {
+  return color === 'w' ? 'Brancas' : 'Pretas';
 }
 
 function escapeHtml(str) {
@@ -92,6 +131,10 @@ function renderBoard(container, boardState, opts = {}) {
         sq.classList.add('selected');
       }
 
+      if (opts.highlightSquares && opts.highlightSquares.some(m => m.row === row && m.col === col)) {
+        sq.classList.add('highlight');
+      }
+
       if (opts.onClick) {
         sq.addEventListener('click', () => opts.onClick(row, col));
       }
@@ -105,6 +148,7 @@ function renderMainBoard() {
   renderBoard(document.getElementById('board'), board, {
     onClick: handleSquareClick,
     selectedSquare: mode === 'recording' ? selectedSquare : null,
+    highlightSquares: mode === 'recording' ? currentLegalMoves : [],
   });
 }
 
@@ -150,40 +194,229 @@ function applyPaletteTool(row, col) {
   renderMainBoard();
 }
 
+// ---------- Geração de lances legais (movimentação real das peças) ----------
+
+function getPieceMoves(row, col) {
+  const piece = board[row][col];
+  if (!piece) return [];
+  switch (piece.type) {
+    case 'p': return getPawnMoves(row, col, piece);
+    case 'n': return getLeaperMoves(row, col, piece, KNIGHT_OFFSETS);
+    case 'b': return getSliderMoves(row, col, piece, BISHOP_DIRS);
+    case 'r': return getSliderMoves(row, col, piece, ROOK_DIRS);
+    case 'q': return getSliderMoves(row, col, piece, [...BISHOP_DIRS, ...ROOK_DIRS]);
+    case 'k': return getKingMoves(row, col, piece);
+    default: return [];
+  }
+}
+
+function getSliderMoves(row, col, piece, directions) {
+  const moves = [];
+  directions.forEach(([dr, dc]) => {
+    let r = row + dr, c = col + dc;
+    while (inBounds(r, c)) {
+      const occupant = board[r][c];
+      if (!occupant) {
+        moves.push({ row: r, col: c, capture: false });
+      } else {
+        if (occupant.color !== piece.color) moves.push({ row: r, col: c, capture: true });
+        break;
+      }
+      r += dr; c += dc;
+    }
+  });
+  return moves;
+}
+
+function getLeaperMoves(row, col, piece, offsets) {
+  const moves = [];
+  offsets.forEach(([dr, dc]) => {
+    const r = row + dr, c = col + dc;
+    if (!inBounds(r, c)) return;
+    const occupant = board[r][c];
+    if (!occupant) moves.push({ row: r, col: c, capture: false });
+    else if (occupant.color !== piece.color) moves.push({ row: r, col: c, capture: true });
+  });
+  return moves;
+}
+
+function getKingMoves(row, col, piece) {
+  const moves = getLeaperMoves(row, col, piece, KING_OFFSETS);
+  const rights = castlingRights[piece.color];
+  const homeRow = piece.color === 'w' ? 7 : 0;
+
+  if (row === homeRow && col === 4) {
+    if (rights.k && !board[homeRow][5] && !board[homeRow][6] &&
+      board[homeRow][7] && board[homeRow][7].type === 'r' && board[homeRow][7].color === piece.color) {
+      moves.push({ row: homeRow, col: 6, capture: false, special: 'castle-k' });
+    }
+    if (rights.q && !board[homeRow][1] && !board[homeRow][2] && !board[homeRow][3] &&
+      board[homeRow][0] && board[homeRow][0].type === 'r' && board[homeRow][0].color === piece.color) {
+      moves.push({ row: homeRow, col: 2, capture: false, special: 'castle-q' });
+    }
+  }
+  return moves;
+}
+
+function getPawnMoves(row, col, piece) {
+  const moves = [];
+  const dir = piece.color === 'w' ? -1 : 1;
+  const startRow = piece.color === 'w' ? 6 : 1;
+
+  const oneRow = row + dir;
+  if (inBounds(oneRow, col) && !board[oneRow][col]) {
+    moves.push({ row: oneRow, col, capture: false });
+    const twoRow = row + 2 * dir;
+    if (row === startRow && !board[twoRow][col]) {
+      moves.push({ row: twoRow, col, capture: false });
+    }
+  }
+
+  [-1, 1].forEach(dc => {
+    const nr = row + dir, nc = col + dc;
+    if (!inBounds(nr, nc)) return;
+    const occupant = board[nr][nc];
+    if (occupant && occupant.color !== piece.color) {
+      moves.push({ row: nr, col: nc, capture: true });
+    } else if (!occupant && lastMove && lastMove.color !== piece.color &&
+      lastMove.toRow === row && lastMove.toCol === nc) {
+      moves.push({ row: nr, col: nc, capture: true, special: 'enpassant' });
+    }
+  });
+
+  return moves;
+}
+
 // ---------- Gravação de lances ----------
 
 function handleRecordingClick(row, col) {
+  const clickedPiece = board[row][col];
+
   if (!selectedSquare) {
-    if (board[row][col]) {
+    if (clickedPiece && clickedPiece.color === turn) {
       selectedSquare = { row, col };
+      currentLegalMoves = getPieceMoves(row, col);
       renderMainBoard();
     }
     return;
   }
+
   if (selectedSquare.row === row && selectedSquare.col === col) {
     selectedSquare = null;
+    currentLegalMoves = [];
     renderMainBoard();
     return;
   }
-  doMove(selectedSquare, { row, col });
-}
 
-function buildNotation(piece, fc, tr, tc, capturedPiece) {
-  const destSq = squareName(tr, tc);
-  if (piece.type === 'p') {
-    return capturedPiece ? ('abcdefgh'[fc] + 'x' + destSq) : destSq;
+  if (clickedPiece && clickedPiece.color === turn) {
+    selectedSquare = { row, col };
+    currentLegalMoves = getPieceMoves(row, col);
+    renderMainBoard();
+    return;
   }
-  const letter = pieceLetterPT(piece.type);
-  return letter + (capturedPiece ? 'x' : '') + destSq;
+
+  const dest = currentLegalMoves.find(m => m.row === row && m.col === col);
+  if (dest) {
+    doMove(selectedSquare, dest);
+  } else {
+    selectedSquare = null;
+    currentLegalMoves = [];
+    renderMainBoard();
+  }
 }
 
-function doMove(from, to) {
-  const fr = from.row, fc = from.col, tr = to.row, tc = to.col;
+function buildFullNotation(piece, fc, tr, tc, capturedPiece, special) {
+  if (special === 'enpassant') {
+    const s = 'abcdefgh'[fc] + 'x' + squareName(tr, tc) + ' e.p.';
+    return { modern: s, old: s, oldExpansion: `Peão captura em passagem, em ${squareName(tr, tc)}` };
+  }
+
+  const destSqModern = squareName(tr, tc);
+  let modern;
+  if (piece.type === 'p') {
+    modern = capturedPiece ? ('abcdefgh'[fc] + 'x' + destSqModern) : destSqModern;
+  } else {
+    modern = pieceLetterPT(piece.type) + (capturedPiece ? 'x' : '') + destSqModern;
+  }
+
+  const letterOld = pieceLetterOldPT(piece.type);
+  const fileCode = FILE_CODES[tc];
+  const rankOld = descRank(tr, piece.color);
+  const destSqOld = rankOld + fileCode;
+  const pieceName = PIECE_NAMES_PT[piece.type];
+  const fileNameFull = FILE_NAMES_PT[fileCode];
+
+  let old, oldExpansion;
+  if (capturedPiece) {
+    old = letterOld + 'x' + destSqOld;
+    oldExpansion = `${pieceName} captura em ${rankOld} ${fileNameFull}`;
+  } else {
+    old = letterOld + destSqOld;
+    oldExpansion = `${pieceName} ${rankOld} ${fileNameFull}`;
+  }
+
+  return { modern, old, oldExpansion };
+}
+
+function updateCastlingRightsOnMove(movingPiece, fr, fc, tr, tc, capturedPiece) {
+  if (movingPiece.type === 'k') {
+    castlingRights[movingPiece.color].k = false;
+    castlingRights[movingPiece.color].q = false;
+  }
+  if (movingPiece.type === 'r') {
+    if (movingPiece.color === 'w' && fr === 7 && fc === 0) castlingRights.w.q = false;
+    if (movingPiece.color === 'w' && fr === 7 && fc === 7) castlingRights.w.k = false;
+    if (movingPiece.color === 'b' && fr === 0 && fc === 0) castlingRights.b.q = false;
+    if (movingPiece.color === 'b' && fr === 0 && fc === 7) castlingRights.b.k = false;
+  }
+  if (capturedPiece && capturedPiece.type === 'r') {
+    if (tr === 7 && tc === 0) castlingRights.w.q = false;
+    if (tr === 7 && tc === 7) castlingRights.w.k = false;
+    if (tr === 0 && tc === 0) castlingRights.b.q = false;
+    if (tr === 0 && tc === 7) castlingRights.b.k = false;
+  }
+}
+
+function executeCastle(kingPiece, fr, fc, tr, tc, special) {
+  const row = fr;
+  const rookFromCol = special === 'castle-k' ? 7 : 0;
+  const rookToCol = special === 'castle-k' ? 5 : 3;
+
+  board[tr][tc] = board[fr][fc];
+  board[fr][fc] = null;
+  board[row][rookToCol] = board[row][rookFromCol];
+  board[row][rookFromCol] = null;
+
+  castlingRights[kingPiece.color].k = false;
+  castlingRights[kingPiece.color].q = false;
+
+  const label = special === 'castle-k' ? '0-0' : '0-0-0';
+  const expansion = special === 'castle-k' ? 'Roque pequeno' : 'Roque grande';
+  finalizeMove(kingPiece, { modern: label, old: label, oldExpansion: expansion }, false, tr, tc);
+}
+
+function doMove(from, destMove) {
+  const fr = from.row, fc = from.col, tr = destMove.row, tc = destMove.col;
   const movingPiece = board[fr][fc];
   if (!movingPiece) return;
 
-  const capturedPiece = board[tr][tc];
-  const notationBase = buildNotation(movingPiece, fc, tr, tc, capturedPiece);
+  if (destMove.special === 'castle-k' || destMove.special === 'castle-q') {
+    executeCastle(movingPiece, fr, fc, tr, tc, destMove.special);
+    return;
+  }
+
+  let capturedPiece;
+  if (destMove.special === 'enpassant') {
+    capturedPiece = board[fr][tc];
+    board[fr][tc] = null;
+  } else {
+    capturedPiece = board[tr][tc];
+  }
+
+  const isDoubleStep = movingPiece.type === 'p' && Math.abs(tr - fr) === 2;
+  const notation = buildFullNotation(movingPiece, fc, tr, tc, capturedPiece, destMove.special);
+
+  updateCastlingRightsOnMove(movingPiece, fr, fc, tr, tc, capturedPiece);
 
   board[tr][tc] = { ...movingPiece };
   board[fr][fc] = null;
@@ -192,17 +425,33 @@ function doMove(from, to) {
   if (isPromotion) {
     askPromotion(movingPiece.color, (chosenType) => {
       board[tr][tc].type = chosenType;
-      finalizeMove(notationBase + '=' + pieceLetterPT(chosenType));
+      notation.modern += '=' + pieceLetterPT(chosenType);
+      notation.old += '=' + pieceLetterOldPT(chosenType);
+      notation.oldExpansion += `, promovendo a ${PIECE_NAMES_PT[chosenType]}`;
+      finalizeMove(movingPiece, notation, isDoubleStep, tr, tc);
     });
   } else {
-    finalizeMove(notationBase);
+    finalizeMove(movingPiece, notation, isDoubleStep, tr, tc);
   }
 }
 
-function finalizeMove(notation) {
-  currentMoves.push({ notation, boardAfter: cloneBoard(board) });
+function finalizeMove(movingPiece, notation, isDoubleStep, tr, tc) {
+  lastMove = isDoubleStep ? { color: movingPiece.color, toRow: tr, toCol: tc } : null;
+
+  currentMoves.push({
+    color: movingPiece.color,
+    pieceType: movingPiece.type,
+    modern: notation.modern,
+    old: notation.old,
+    oldExpansion: notation.oldExpansion,
+    boardAfter: cloneBoard(board),
+    castlingRightsAfter: cloneCastlingRights(castlingRights),
+    lastMoveAfter: lastMove ? { ...lastMove } : null,
+  });
+
   turn = turn === 'w' ? 'b' : 'w';
   selectedSquare = null;
+  currentLegalMoves = [];
   renderMovesList();
   updateTurnIndicator();
   renderMainBoard();
@@ -211,24 +460,52 @@ function finalizeMove(notation) {
 function undoLastMove() {
   if (currentMoves.length === 0) return;
   currentMoves.pop();
-  board = currentMoves.length > 0
-    ? cloneBoard(currentMoves[currentMoves.length - 1].boardAfter)
-    : cloneBoard(initialPositionForRecording);
+
+  if (currentMoves.length > 0) {
+    const prev = currentMoves[currentMoves.length - 1];
+    board = cloneBoard(prev.boardAfter);
+    castlingRights = cloneCastlingRights(prev.castlingRightsAfter);
+    lastMove = prev.lastMoveAfter ? { ...prev.lastMoveAfter } : null;
+  } else {
+    board = cloneBoard(initialPositionForRecording);
+    castlingRights = cloneCastlingRights(initialCastlingRights);
+    lastMove = null;
+  }
+
   turn = turn === 'w' ? 'b' : 'w';
   selectedSquare = null;
+  currentLegalMoves = [];
   renderMovesList();
   updateTurnIndicator();
   renderMainBoard();
 }
 
+function buildMoveLi(m, index, isCurrent) {
+  const li = document.createElement('li');
+  if (isCurrent) li.className = 'current';
+
+  const modern = m.modern || m.notation || '?';
+  const old = m.old || m.notation || '?';
+  const oldExpansion = m.oldExpansion || '';
+  const colorLabel = m.color ? colorNamePT(m.color) : '';
+  const pieceLabel = m.pieceType ? PIECE_NAMES_PT[m.pieceType] : '';
+
+  li.innerHTML = `
+    <div class="move-row">
+      <span><span class="move-index">${index + 1}.</span>${escapeHtml(colorLabel)} · ${escapeHtml(pieceLabel)}</span>
+    </div>
+    <div class="move-notations">
+      <span class="move-modern"><strong>Moderno:</strong> ${escapeHtml(modern)}</span>
+      <span class="move-old"><strong>Antigo:</strong> ${escapeHtml(old)} <em>(${escapeHtml(oldExpansion)})</em></span>
+    </div>
+  `;
+  return li;
+}
+
 function renderMovesList() {
   const list = document.getElementById('movesList');
   list.innerHTML = '';
-  currentMoves.forEach((m, i) => {
-    const li = document.createElement('li');
-    li.textContent = `${i + 1}. ${m.notation}`;
-    list.appendChild(li);
-  });
+  currentMoves.forEach((m, i) => list.appendChild(buildMoveLi(m, i, false)));
 }
 
 function updateTurnIndicator() {
@@ -260,6 +537,7 @@ function switchToSetupMode() {
   mode = 'setup';
   currentMoves = [];
   selectedSquare = null;
+  currentLegalMoves = [];
   document.getElementById('setupControls').classList.remove('hidden');
   document.getElementById('palette').classList.remove('hidden');
   document.getElementById('recordingControls').classList.add('hidden');
@@ -268,12 +546,30 @@ function switchToSetupMode() {
   renderMainBoard();
 }
 
+function initCastlingRights() {
+  castlingRights = { w: { k: false, q: false }, b: { k: false, q: false } };
+
+  if (board[7][4] && board[7][4].color === 'w' && board[7][4].type === 'k') {
+    if (board[7][7] && board[7][7].color === 'w' && board[7][7].type === 'r') castlingRights.w.k = true;
+    if (board[7][0] && board[7][0].color === 'w' && board[7][0].type === 'r') castlingRights.w.q = true;
+  }
+  if (board[0][4] && board[0][4].color === 'b' && board[0][4].type === 'k') {
+    if (board[0][7] && board[0][7].color === 'b' && board[0][7].type === 'r') castlingRights.b.k = true;
+    if (board[0][0] && board[0][0].color === 'b' && board[0][0].type === 'r') castlingRights.b.q = true;
+  }
+
+  initialCastlingRights = cloneCastlingRights(castlingRights);
+  lastMove = null;
+}
+
 function switchToRecordingMode() {
   mode = 'recording';
   initialPositionForRecording = cloneBoard(board);
+  initCastlingRights();
   currentMoves = [];
   turn = 'w';
   selectedSquare = null;
+  currentLegalMoves = [];
   document.getElementById('setupControls').classList.add('hidden');
   document.getElementById('palette').classList.add('hidden');
   document.getElementById('recordingControls').classList.remove('hidden');
@@ -477,9 +773,7 @@ function renderReplay() {
 
   const list = document.getElementById('replayMovesList');
   seq.moves.forEach((m, i) => {
-    const li = document.createElement('li');
-    li.textContent = `${i + 1}. ${m.notation}`;
-    if (i + 1 === replayStepIndex) li.className = 'current';
+    const li = buildMoveLi(m, i, i + 1 === replayStepIndex);
     li.style.cursor = 'pointer';
     li.addEventListener('click', () => { replayStepIndex = i + 1; renderReplay(); });
     list.appendChild(li);
