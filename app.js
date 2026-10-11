@@ -31,6 +31,7 @@ let currentMoves = []; // [{color, pieceType, modern, old, oldExpansion, boardAf
 let initialPositionForRecording = null;
 let initialCastlingRights = null;
 let turn = 'w';
+let startingColor = 'w'; // quem inicia a gravação, escolhido na montagem
 
 // direitos de roque e controle de en passant
 let castlingRights = { w: { k: true, q: true }, b: { k: true, q: true } };
@@ -567,7 +568,7 @@ function switchToRecordingMode() {
   initialPositionForRecording = cloneBoard(board);
   initCastlingRights();
   currentMoves = [];
-  turn = 'w';
+  turn = startingColor;
   selectedSquare = null;
   currentLegalMoves = [];
   document.getElementById('setupControls').classList.add('hidden');
@@ -600,6 +601,18 @@ document.getElementById('limparBtn').addEventListener('click', () => {
 });
 
 document.getElementById('iniciarGravacaoBtn').addEventListener('click', switchToRecordingMode);
+
+document.getElementById('startWhiteBtn').addEventListener('click', () => {
+  startingColor = 'w';
+  document.getElementById('startWhiteBtn').classList.add('active');
+  document.getElementById('startBlackBtn').classList.remove('active');
+});
+
+document.getElementById('startBlackBtn').addEventListener('click', () => {
+  startingColor = 'b';
+  document.getElementById('startBlackBtn').classList.add('active');
+  document.getElementById('startWhiteBtn').classList.remove('active');
+});
 
 document.getElementById('paletteEraser').addEventListener('click', (e) => {
   selectedTool = 'eraser';

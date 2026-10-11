@@ -161,6 +161,28 @@ button.danger:hover { background: #fdecea; }
   flex-wrap: wrap;
 }
 
+.starting-color-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.starting-color-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.toggle-btn {
+  background: var(--border);
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 7px 12px;
+}
+.toggle-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
 .turn-indicator {
   font-size: 0.85rem;
   color: var(--muted);
